@@ -2,8 +2,8 @@
 import datetime
 from typing import Any, Dict, List
 
+from journal_impact import JournalImpactAnalyzer, sort_papers_by_impact
 from paper_utils import filter_excluded_terms
-
 from semantic_scholar_client import SemanticScholarAPIClient
 
 
@@ -14,12 +14,15 @@ def get_recent_papers_by_keywords(
     fields: str = None,
     max_results_per_keyword: int = 200,
     exclude_terms: List[str] = None,
+    sort_by_impact: bool = True,
 ) -> Dict[str, List[Dict[str, Any]]]:
-    """Get recent papers for multiple keyword searches."""
+    """Get recent papers with optional impact factor sorting."""
     today = datetime.date.today()
     start_date = today - datetime.timedelta(days=days_back)
 
+    analyzer = JournalImpactAnalyzer() if sort_by_impact else None
     results = {}
+
     for keyword in keywords:
         print(f"\n--- Searching for '{keyword}' in last {days_back} days ---")
         try:
@@ -34,39 +37,16 @@ def get_recent_papers_by_keywords(
             if exclude_terms:
                 papers = filter_excluded_terms(papers, exclude_terms)
 
+            if sort_by_impact and analyzer:
+                papers = sort_papers_by_impact(papers, analyzer)
+                print(f"Found {len(papers)} papers for '{keyword}' (sorted by impact)")
+            else:
+                print(f"Found {len(papers)} papers for '{keyword}'")
+
             results[keyword] = papers
-            print(f"Found {len(papers)} papers for '{keyword}'")
+
         except Exception as e:
             print(f"Error searching for '{keyword}': {e}")
             results[keyword] = []
 
     return results
-
-
-if __name__ == "__main__":
-    import os
-
-    from paper_utils import format_paper_details
-
-    SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
-    if not SEMANTIC_SCHOLAR_API_KEY:
-        print("ERROR: Please set the SEMANTIC_SCHOLAR_API_KEY environment variable.")
-        exit(1)
-
-    client = SemanticScholarAPIClient(api_key=SEMANTIC_SCHOLAR_API_KEY)
-    EXCLUDE_TERMS = ["microbiome", "prebiotics", "probiotics"]
-
-    keywords = ["IBD genetics", "Crohn's disease", "ulcerative colitis"]
-    recent_papers = get_recent_papers_by_keywords(
-        client=client,
-        keywords=keywords,
-        days_back=7,
-        max_results_per_keyword=150,
-        exclude_terms=EXCLUDE_TERMS,
-    )
-
-    for keyword, papers in recent_papers.items():
-        print(f"\nFound {len(papers)} recent papers for '{keyword}' (after exclusions)")
-        for i, paper in enumerate(papers[:3]):
-            print(f"\n{i + 1}. {format_paper_details(paper)}")
-            print("-" * 60)

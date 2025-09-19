@@ -1,13 +1,43 @@
-# main.py
 import argparse
 import datetime
 import os
-from typing import List
+from typing import Any, Dict, List
 
+from journal_impact import JournalImpactAnalyzer
 from paper_utils import format_paper_details
 from recent_papers_search import get_recent_papers_by_keywords
 from semantic_scholar_client import SemanticScholarAPIClient
 from top_cited_papers import get_top_cited_papers_by_date_range
+
+
+def format_paper_details_with_impact(paper: Dict[str, Any]) -> str:
+    """Format paper details including impact factor information."""
+    base_details = format_paper_details(paper)
+
+    analyzer = JournalImpactAnalyzer()
+
+    # Get journal data
+    external_ids = paper.get("externalIds", {})
+    issn = external_ids.get("ISSN") or external_ids.get("issn")
+    venue = paper.get("venue", "")
+
+    journal_data = None
+    if issn:
+        journal_data = analyzer.get_journal_by_issn(issn)
+    if not journal_data and venue:
+        journal_data = analyzer.get_journal_by_name(venue)
+
+    impact_score = analyzer.get_paper_impact_score(paper)
+
+    if journal_data:
+        impact_info = f"\n    Impact Factor: {journal_data['impact_factor']:.3f}"
+        impact_info += f"\n    H-Index: {journal_data['h_index']}"
+        impact_info += f"\n    Impact Score: {impact_score:.1f}/120"
+    else:
+        impact_info = f"\n    Impact Factor: Unknown"
+        impact_info += f"\n    Impact Score: {impact_score:.1f}/120"
+
+    return base_details + impact_info
 
 
 def parse_arguments():
@@ -74,6 +104,19 @@ def parse_arguments():
         help="Number of papers to display per keyword (default: 3)",
     )
 
+    # Impact factor
+    parser.add_argument(
+        "--sort-by-impact",
+        action="store_true",
+        default=True,
+        help="Sort recent papers by journal impact factor",
+    )
+    parser.add_argument(
+        "--show-impact",
+        action="store_true",
+        help="Show impact factor details in output",
+    )
+
     # API fields
     parser.add_argument(
         "--fields",
@@ -122,6 +165,7 @@ def main():
 
     # Recent papers search
     print("\n" + "=" * 80)
+
     recent_papers = get_recent_papers_by_keywords(
         client=client,
         keywords=args.keywords,
@@ -129,12 +173,17 @@ def main():
         fields=args.fields,
         max_results_per_keyword=args.max_results_per_keyword,
         exclude_terms=args.exclude_terms,
+        sort_by_impact=args.sort_by_impact,
     )
 
+    # Display results
     for keyword, papers in recent_papers.items():
         print(f"\nFound {len(papers)} recent papers for '{keyword}' (after exclusions)")
         for i, paper in enumerate(papers[: args.display_limit]):
-            print(f"\n{i + 1}. {format_paper_details(paper)}")
+            if args.show_impact:
+                print(f"\n{i + 1}. {format_paper_details_with_impact(paper)}")
+            else:
+                print(f"\n{i + 1}. {format_paper_details(paper)}")
             print("-" * 60)
 
 
